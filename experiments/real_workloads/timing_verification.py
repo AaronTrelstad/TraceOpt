@@ -297,7 +297,7 @@ def main():
     configs = [
         ('eager', eager_model),
     ]
-    if compiled_model:
+    if compiled_model is not None:
         configs.append(('compile_RO', compiled_model))
 
     for model_label, model in configs:
