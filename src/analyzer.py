@@ -16,7 +16,7 @@ from spec import (
     Operation, OpType, TensorID, GPU_OP_TYPES,
     SyncConstraint, SemanticDep, DepType,
     InducedOrderingResult, OrderingStatus, SyncAnalysisResult,
-    SyncClassification, HostObservability,
+    SyncClassification, HostObservability, DependencyFrontier,
     ranges_overlap, has_write_read_overlap, has_write_write_overlap,
 )
 from typing import List, Dict, Set, Tuple, Optional
@@ -445,6 +445,11 @@ class TraceOptAnalyzer:
         result = SyncAnalysisResult(
             sync=sync, orderings=results, host_obs=host_obs)
         result.classification = result.classify_barrier()
+
+        # Compute minimal dependency frontier
+        op_streams = {op_id: op.stream_id for op_id, op in self.ops.items()}
+        result.frontier = result.compute_dependency_frontier(op_streams)
+
         return result
 
     def _conservative_dep_check(self, pred_id: int,
@@ -535,6 +540,9 @@ class TraceOptAnalyzer:
         total_required = sum(r.n_required for r in sync_results)
         total_removable = sum(r.n_removable for r in sync_results)
         total_covered = sum(r.n_covered for r in sync_results)
+        total_frontier_events = sum(
+            r.frontier.n_events for r in sync_results
+            if hasattr(r, 'frontier'))
 
         return {
             'n_operations': len(self.ops),
@@ -544,6 +552,7 @@ class TraceOptAnalyzer:
             'n_required': total_required,
             'n_removable': total_removable,
             'n_covered': total_covered,
+            'n_frontier_events': total_frontier_events,
             'overconstraint_ratio': (
                 total_removable / max(total_orderings, 1)
             ),

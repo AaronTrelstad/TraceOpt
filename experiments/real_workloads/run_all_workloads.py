@@ -45,6 +45,7 @@ def run_workload_safe(name, run_fn, **kwargs):
             'n_removable': result['n_removable'],
             'n_covered': result['n_covered'],
             'overconstraint_ratio': result['overconstraint_ratio'],
+            'n_frontier_events': result.get('n_frontier_events', 0),
             'barriers': [{
                 'op_id': sr.sync.sync_op_id,
                 'classification': sr.classification.name,
@@ -52,6 +53,14 @@ def run_workload_safe(name, run_fn, **kwargs):
                 'n_required': sr.n_required,
                 'n_removable': sr.n_removable,
                 'n_covered': sr.n_covered,
+                'n_frontier_events': sr.frontier.n_events
+                    if hasattr(sr, 'frontier') else 0,
+                'frontier_events': [
+                    {'producer': e.producer, 'consumer': e.consumer,
+                     'producer_stream': e.producer_stream,
+                     'consumer_stream': e.consumer_stream}
+                    for e in sr.frontier.events
+                ] if hasattr(sr, 'frontier') else [],
             } for sr in result['sync_results']],
             'error': None,
         }
@@ -133,10 +142,12 @@ def main():
     total_required = 0
     total_orderings = 0
     total_removable_orderings = 0
+    total_frontier = 0
+    total_required_edges = 0
 
-    header = (f"{'Workload':<35s} {'Barriers':>8s} {'WEAK':>5s} "
-              f"{'REDUN':>5s} {'REQ':>5s} {'Orderings':>9s} "
-              f"{'Removable':>9s} {'Overcon%':>8s}")
+    header = (f"{'Workload':<35s} {'Barr':>5s} {'WEAK':>5s} "
+              f"{'REQ':>4s} {'P×Q':>6s} {'Req':>5s} "
+              f"{'Front':>5s} {'Overcon%':>8s}")
     print(header)
     print("-" * len(header))
 
@@ -152,6 +163,7 @@ def main():
         n_req = sum(1 for b in r['barriers']
                     if b['classification'] == 'REQUIRED')
         nb = r['n_sync_barriers']
+        n_front = r.get('n_frontier_events', 0)
 
         total_barriers += nb
         total_weakenable += n_weak
@@ -159,24 +171,32 @@ def main():
         total_required += n_req
         total_orderings += r['n_orderings']
         total_removable_orderings += r['n_removable']
+        total_frontier += n_front
+        total_required_edges += r['n_required']
 
-        print(f"{r['name']:<35s} {nb:>8d} {n_weak:>5d} "
-              f"{n_redun:>5d} {n_req:>5d} {r['n_orderings']:>9d} "
-              f"{r['n_removable']:>9d} {r['overconstraint_ratio']:>7.1%}")
+        print(f"{r['name']:<35s} {nb:>5d} {n_weak:>5d} "
+              f"{n_req:>4d} {r['n_orderings']:>6d} {r['n_required']:>5d} "
+              f"{n_front:>5d} {r['overconstraint_ratio']:>7.1%}")
 
     print("-" * len(header))
     overall_ratio = (total_removable_orderings / max(total_orderings, 1))
-    print(f"{'TOTAL':<35s} {total_barriers:>8d} {total_weakenable:>5d} "
-          f"{total_redundant:>5d} {total_required:>5d} {total_orderings:>9d} "
-          f"{total_removable_orderings:>9d} {overall_ratio:>7.1%}")
+    print(f"{'TOTAL':<35s} {total_barriers:>5d} {total_weakenable:>5d} "
+          f"{total_required:>4d} {total_orderings:>6d} {total_required_edges:>5d} "
+          f"{total_frontier:>5d} {overall_ratio:>7.1%}")
 
     print(f"\nKey findings:")
-    print(f"  - {total_weakenable} WEAKENABLE barriers "
+    print(f"  - {total_weakenable}/{total_barriers} barriers are WEAKENABLE "
           f"(global sync → targeted events)")
-    print(f"  - {total_redundant} PROVABLY_REDUNDANT barriers "
-          f"(can be removed entirely)")
+    print(f"  - {total_required_edges} required Cartesian-product edges "
+          f"reduce to {total_frontier} minimal frontier events")
+    print(f"  - Compression: {total_required_edges} edges → "
+          f"{total_frontier} events "
+          f"({total_frontier/max(total_required_edges,1):.0%} of naive)")
     print(f"  - {total_removable_orderings}/{total_orderings} "
           f"induced orderings are removable ({overall_ratio:.0%})")
+
+    print(f"\n  The actual optimization replaces {total_weakenable} global "
+          f"barriers with {total_frontier} targeted event dependencies.")
 
     if total_weakenable > 0 or total_redundant > 0:
         print(f"\n  CONCLUSION: Over-synchronization exists naturally "

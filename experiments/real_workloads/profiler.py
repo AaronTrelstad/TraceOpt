@@ -53,6 +53,8 @@ class CapturedEvent:
     # Sync metadata
     sync_type: str = ''       # 'device', 'stream', 'event'
     target_stream: Optional[int] = None
+    # Origin tracking: where did this sync come from?
+    origin: str = 'unknown'   # 'framework', 'library_api', 'user_explicit', 'instrumentation'
 
 
 class SyncProfiler:
@@ -87,7 +89,8 @@ class SyncProfiler:
 
     def _record(self, event_type: str, name: str, stream_id: int = 0,
                 input_ptrs=None, output_ptrs=None,
-                sync_type: str = '', target_stream=None):
+                sync_type: str = '', target_stream=None,
+                origin: str = 'unknown'):
         ev = CapturedEvent(
             event_id=self._next_id(),
             event_type=event_type,
@@ -98,11 +101,12 @@ class SyncProfiler:
             output_ptrs=output_ptrs or [],
             sync_type=sync_type,
             target_stream=target_stream,
+            origin=origin,
         )
         self.events.append(ev)
         if self.verbose:
             print(f"  [TRACE] {ev.event_type:>8s} | {ev.name} "
-                  f"| stream={ev.stream_id}")
+                  f"| stream={ev.stream_id} | origin={ev.origin}")
         return ev
 
     def _get_tensor_io(self, args, kwargs=None):
@@ -144,7 +148,8 @@ class SyncProfiler:
             profiler._original_sync(device)
             if profiler._capturing:
                 profiler._record('sync', 'cudaDeviceSynchronize',
-                                 stream_id=-1, sync_type='device')
+                                 stream_id=-1, sync_type='device',
+                                 origin='user_explicit')
 
         torch.cuda.synchronize = patched_sync
 
@@ -158,7 +163,8 @@ class SyncProfiler:
                 profiler._record('item', f'Tensor.item() ptr={ptr:#x}',
                                  stream_id=-1,
                                  input_ptrs=[(ptr, size)],
-                                 sync_type='device')
+                                 sync_type='device',
+                                 origin='library_api')
             return result
 
         torch.Tensor.item = patched_item
@@ -173,7 +179,8 @@ class SyncProfiler:
                 profiler._record('memcpy', f'D2H ptr={ptr:#x}',
                                  stream_id=0,
                                  input_ptrs=[(ptr, size)],
-                                 sync_type='')
+                                 sync_type='',
+                                 origin='library_api')
             return result
 
         torch.Tensor.cpu = patched_cpu
@@ -328,18 +335,28 @@ class SyncProfiler:
         lines.append(f"  Removable: {result['n_removable']}")
         lines.append(f"  Covered: {result['n_covered']}")
         lines.append(f"Overconstraint ratio: {result['overconstraint_ratio']:.1%}")
+        lines.append(f"Frontier events (minimal): {result.get('n_frontier_events', '?')}")
+        lines.append(f"  (vs {result['n_required']} required Cartesian-product edges)")
         lines.append("")
 
         for sr in result['sync_results']:
             host_tag = " [HOST_REQ]" if sr.host_obs.required else ""
+            frontier_info = ""
+            if hasattr(sr, 'frontier') and sr.frontier.n_events > 0:
+                frontier_info = f" → {sr.frontier.n_events} event(s)"
             lines.append(
                 f"  Barrier op={sr.sync.sync_op_id}: "
                 f"{sr.classification.name}{host_tag} "
-                f"({sr.n_required} req, {sr.n_removable} rem, {sr.n_covered} cov)"
+                f"({sr.n_required} req, {sr.n_removable} rem, "
+                f"{sr.n_covered} cov){frontier_info}"
             )
-            if sr.classification in (SyncClassification.WEAKENABLE,
-                                      SyncClassification.PROVABLY_REDUNDANT):
-                lines.append(f"    → {sr.replacement_suggestion[:120]}")
+            if hasattr(sr, 'frontier') and sr.frontier.n_events > 0:
+                for ev in sr.frontier.events:
+                    lines.append(
+                        f"    event: record s{ev.producer_stream} "
+                        f"op {ev.producer} → wait s{ev.consumer_stream} "
+                        f"op {ev.consumer}"
+                    )
 
         lines.append("=" * 60)
         return "\n".join(lines)
@@ -358,6 +375,7 @@ class SyncProfiler:
                 'output_ptrs': ev.output_ptrs,
                 'sync_type': ev.sync_type,
                 'target_stream': ev.target_stream,
+                'origin': ev.origin,
             })
         with open(path, 'w') as f:
             json.dump(data, f, indent=2)
@@ -379,6 +397,7 @@ class SyncProfiler:
                 output_ptrs=[tuple(x) for x in d['output_ptrs']],
                 sync_type=d['sync_type'],
                 target_stream=d.get('target_stream'),
+                origin=d.get('origin', 'unknown'),
             ))
         profiler._event_counter = len(profiler.events)
         return profiler

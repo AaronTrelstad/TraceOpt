@@ -82,9 +82,27 @@ python3 workload_multi_stream_pipeline.py \
     --save-trace trace_pipeline.json
 echo ""
 
-# Run combined analysis
+# Run combined analysis (with dependency frontier)
 echo "=== Combined Analysis ==="
 python3 run_all_workloads.py --output workload_results.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# DECISIVE EXPERIMENT: Rewrite + measure
+# ---------------------------------------------------------------------------
+echo "=== Rewrite Experiment: Baseline vs TraceOpt ==="
+echo "(Multi-stream pipeline: DEVICE_SYNC → targeted events)"
+echo ""
+python3 rewrite_experiment.py \
+    --batch-size 16 --iters 20 --trials 30 --warmup 10 \
+    --output rewrite_results.json
+echo ""
+
+# Also try larger batch
+echo "=== Rewrite Experiment: batch=32 ==="
+python3 rewrite_experiment.py \
+    --batch-size 32 --iters 20 --trials 30 --warmup 10 \
+    --output rewrite_results_bs32.json
 echo ""
 
 echo "End: $(date)"

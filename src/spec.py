@@ -170,6 +170,37 @@ class InducedOrderingResult:
 
 
 @dataclass
+class EventDependency:
+    """A single event dependency: record after producer, wait before consumer."""
+    producer: int       # op_id to record event after
+    consumer: int       # op_id to wait event before
+    producer_stream: int
+    consumer_stream: int
+    reason: str = ""
+
+
+@dataclass
+class DependencyFrontier:
+    """
+    The minimal set of event dependencies that replaces a global barrier.
+
+    Given a WEAKENABLE barrier with Pred(S) and Succ(S), the Cartesian
+    product P×Q contains many redundant edges. The frontier is the
+    transitive reduction: the smallest set of cross-stream event
+    dependencies that, when enforced, preserves all required semantics.
+
+    This is the actual optimization output — each EventDependency becomes
+    one cudaEventRecord + cudaStreamWaitEvent pair.
+    """
+    events: List[EventDependency] = field(default_factory=list)
+    host_sync_required: bool = False
+
+    @property
+    def n_events(self) -> int:
+        return len(self.events)
+
+
+@dataclass
 class HostObservability:
     """
     Analysis of whether a barrier serves host-visible semantics.
@@ -202,6 +233,7 @@ class SyncAnalysisResult:
     orderings: List[InducedOrderingResult]
     host_obs: HostObservability = field(default_factory=HostObservability)
     classification: SyncClassification = SyncClassification.UNKNOWN
+    frontier: DependencyFrontier = field(default_factory=DependencyFrontier)
 
     @property
     def n_required(self) -> int:
@@ -253,6 +285,77 @@ class SyncAnalysisResult:
         else:
             # Has required GPU orderings + covered, no removable
             return SyncClassification.REQUIRED
+
+    def compute_dependency_frontier(self, op_streams: Dict[int, int]
+                                     ) -> 'DependencyFrontier':
+        """
+        Compute the minimal set of event dependencies to replace this barrier.
+
+        Algorithm: transitive reduction of the required ordering graph.
+        An edge (u,v) is redundant if there exists another path u→...→v
+        through other required edges. We keep only the irreducible edges.
+
+        Args:
+            op_streams: mapping from op_id to stream_id
+        """
+        if self.classification == SyncClassification.PROVABLY_REDUNDANT:
+            return DependencyFrontier(host_sync_required=False)
+
+        # Collect all REQUIRED cross-stream orderings
+        required_edges: List[Tuple[int, int]] = []
+        for o in self.orderings:
+            if o.status == OrderingStatus.REQUIRED:
+                required_edges.append((o.predecessor, o.successor))
+
+        if not required_edges:
+            return DependencyFrontier(
+                host_sync_required=self.host_obs.required)
+
+        # Build adjacency for required edges
+        adj: Dict[int, Set[int]] = defaultdict(set)
+        for u, v in required_edges:
+            adj[u].add(v)
+
+        # Transitive reduction: remove edge (u,v) if reachable u→...→v
+        # through other edges (path length >= 2)
+        frontier_edges: List[Tuple[int, int]] = []
+        for u, v in required_edges:
+            # Check if v is reachable from u WITHOUT using the direct u→v edge
+            reachable = set()
+            queue = []
+            for w in adj[u]:
+                if w != v:
+                    queue.append(w)
+            visited = {u}
+            while queue:
+                node = queue.pop(0)
+                if node == v:
+                    reachable.add(v)
+                    break
+                if node in visited:
+                    continue
+                visited.add(node)
+                for w in adj.get(node, set()):
+                    queue.append(w)
+
+            if v not in reachable:
+                frontier_edges.append((u, v))
+
+        # Convert to EventDependency objects
+        events = []
+        for u, v in frontier_edges:
+            events.append(EventDependency(
+                producer=u,
+                consumer=v,
+                producer_stream=op_streams.get(u, 0),
+                consumer_stream=op_streams.get(v, 0),
+                reason=f"required ordering op {u} → op {v}",
+            ))
+
+        return DependencyFrontier(
+            events=events,
+            host_sync_required=self.host_obs.required,
+        )
 
     @property
     def replacement_suggestion(self) -> str:
