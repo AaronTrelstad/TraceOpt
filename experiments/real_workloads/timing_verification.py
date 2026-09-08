@@ -186,44 +186,33 @@ def verify_multi_iteration_correctness(model_eager, batch_size, device,
 
     results = {}
 
+    # NOTE: 'none' mode removed — it causes data races that trigger CUDA
+    # assertions in torch.topk, permanently poisoning the CUDA context
+    # (sticky error) and killing all subsequent experiments in the job.
     for model_label, model in models.items():
-        for sync_mode in ['global', 'event', 'none']:
+        for sync_mode in ['global', 'event']:
             # Use fresh buffers each time, seeded identically
             torch.manual_seed(42)
             torch.cuda.manual_seed(42)
             infer_buf = torch.zeros(batch_size, 3, 224, 224, device=device)
             post_buf = torch.zeros(batch_size, 1000, device=device)
 
-            try:
-                with torch.no_grad():
-                    run_pipeline_3stage(model, preprocess_buf, infer_buf, post_buf,
-                                        streams, sync_mode, n_iters)
-                    torch.cuda.synchronize()
-
-                # Capture final state
-                final_post = post_buf.clone().cpu()
-                topk_vals, topk_idx = torch.topk(post_buf, k=5, dim=1)
-
-                key = f"{model_label}_{sync_mode}"
-                results[key] = {
-                    'post_buf_mean': final_post.mean().item(),
-                    'post_buf_std': final_post.std().item(),
-                    'topk_vals': topk_vals.cpu(),
-                    'topk_idx': topk_idx.cpu(),
-                }
-            except RuntimeError as e:
-                # 'none' mode can trigger CUDA assertions from data races
-                # (corrupted tensors → topk out-of-bounds). Catch and record.
-                key = f"{model_label}_{sync_mode}"
-                results[key] = {
-                    'post_buf_mean': float('nan'),
-                    'post_buf_std': float('nan'),
-                    'error': str(e),
-                }
-                print(f"    {key}: CUDA error (expected for none mode): {str(e)[:100]}")
-                # Reset device to clear poisoned context
+            with torch.no_grad():
+                run_pipeline_3stage(model, preprocess_buf, infer_buf, post_buf,
+                                    streams, sync_mode, n_iters)
                 torch.cuda.synchronize()
-                torch.cuda.empty_cache()
+
+            # Capture final state
+            final_post = post_buf.clone().cpu()
+            topk_vals, topk_idx = torch.topk(post_buf, k=5, dim=1)
+
+            key = f"{model_label}_{sync_mode}"
+            results[key] = {
+                'post_buf_mean': final_post.mean().item(),
+                'post_buf_std': final_post.std().item(),
+                'topk_vals': topk_vals.cpu(),
+                'topk_idx': topk_idx.cpu(),
+            }
 
     # Compare against global (guaranteed correct) baselines
     print(f"\n  Multi-iteration correctness ({n_iters} iterations):")
@@ -234,7 +223,7 @@ def verify_multi_iteration_correctness(model_eager, batch_size, device,
         if ref_key not in results:
             continue
         ref = results[ref_key]
-        for sync_mode in ['event', 'none']:
+        for sync_mode in ['event']:
             test_key = f"{model_label}_{sync_mode}"
             if test_key not in results:
                 continue
@@ -315,7 +304,11 @@ def main():
         configs.append(('compile_RO', compiled_model))
 
     for model_label, model in configs:
-        for sync_mode in ['global', 'event', 'none']:
+        # 'none' removed: data races corrupt post_buf → torch.topk in the
+        # pipeline triggers a CUDA assertion that permanently poisons the
+        # CUDA context (sticky error).  Previous run already captured 'none'
+        # timing; the key comparison is global vs event.
+        for sync_mode in ['global', 'event']:
             label = f"{model_label}_{sync_mode}"
             print(f"\n{'='*78}")
             print(f"SUBMIT vs COMPLETE: {label}")
