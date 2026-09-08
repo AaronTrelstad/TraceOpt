@@ -2,8 +2,8 @@
 # =============================================================================
 # run_benchmark.sh — TraceOpt sync weakening performance benchmark
 #
-# Submit:
-#   sbatch experiments/benchmark/run_benchmark.sh
+# Submit from /home/trelstad/Research/TraceOpt:
+#   sbatch run_benchmark.sh
 # =============================================================================
 
 #SBATCH --job-name=traceopt_bench
@@ -22,11 +22,11 @@
 # Environment
 # ---------------------------------------------------------------------------
 module purge
-module load cuda    # Adjust if your cluster uses a different module name
+module load cuda/12.6.3-la3bxnl
 
 cd $SLURM_SUBMIT_DIR
 
-mkdir -p experiments/benchmark/logs
+mkdir -p logs
 
 export CUDA_VISIBLE_DEVICES=0
 
@@ -49,18 +49,24 @@ if [ -z "$GPU_ARCH" ]; then
 fi
 echo "Detected compute capability: sm_${GPU_ARCH}"
 
-cd experiments/benchmark
-make clean
+make clean 2>/dev/null
 NVCC_FLAGS="-O2 -arch=sm_${GPU_ARCH}" make
-cd $SLURM_SUBMIT_DIR
-
+if [ $? -ne 0 ]; then
+    echo "Make failed, trying direct nvcc..."
+    nvcc -O2 -arch=sm_${GPU_ARCH} -o sync_benchmark sync_benchmark.cu -lm
+fi
+if [ ! -f ./sync_benchmark ]; then
+    echo "BUILD FAILED — sync_benchmark not found"
+    exit 1
+fi
+echo "Build OK"
 echo ""
 
 # ---------------------------------------------------------------------------
 # Run: Default configuration
 # ---------------------------------------------------------------------------
 echo "--- Experiment 1: Default (2 streams, 4ms each) ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 2 --t_a 4.0 --t_b 4.0 --t_c 4.0 --trials 100 --warmup 20
 
 echo ""
@@ -69,13 +75,13 @@ echo ""
 # Run: Asymmetric durations
 # ---------------------------------------------------------------------------
 echo "--- Experiment 2: Short A, long C (A=1ms, B=4ms, C=8ms) ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 2 --t_a 1.0 --t_b 4.0 --t_c 8.0 --trials 100 --warmup 20
 
 echo ""
 
 echo "--- Experiment 3: Long A, short C (A=8ms, B=4ms, C=1ms) ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 2 --t_a 8.0 --t_b 4.0 --t_c 1.0 --trials 100 --warmup 20
 
 echo ""
@@ -84,13 +90,13 @@ echo ""
 # Run: Many streams
 # ---------------------------------------------------------------------------
 echo "--- Experiment 4: 4 streams, equal durations ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 4 --t_a 4.0 --t_b 4.0 --t_c 4.0 --trials 100 --warmup 20
 
 echo ""
 
 echo "--- Experiment 5: 8 streams, equal durations ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 8 --t_a 4.0 --t_b 4.0 --t_c 4.0 --trials 100 --warmup 20
 
 echo ""
@@ -99,7 +105,7 @@ echo ""
 # Run: Realistic ML-like durations
 # ---------------------------------------------------------------------------
 echo "--- Experiment 6: ML-like (A=2ms attn, B=1ms ffn, C=3ms preprocess) ---"
-./experiments/benchmark/sync_benchmark \
+./sync_benchmark \
     --streams 2 --t_a 2.0 --t_b 1.0 --t_c 3.0 --trials 100 --warmup 20
 
 echo ""
