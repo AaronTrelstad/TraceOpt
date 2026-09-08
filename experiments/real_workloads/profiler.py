@@ -335,7 +335,7 @@ class SyncProfiler:
         lines.append(f"  Removable: {result['n_removable']}")
         lines.append(f"  Covered: {result['n_covered']}")
         lines.append(f"Overconstraint ratio: {result['overconstraint_ratio']:.1%}")
-        lines.append(f"Frontier events (minimal): {result.get('n_frontier_events', '?')}")
+        lines.append(f"Frontier events: {result.get('n_frontier_events', '?')}")
         lines.append(f"  (vs {result['n_required']} required Cartesian-product edges)")
         lines.append("")
 

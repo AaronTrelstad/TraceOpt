@@ -11,7 +11,7 @@
 #SBATCH --error=logs/m4_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0-1:00:0
+#SBATCH --time=0-2:00:0
 #SBATCH --partition=instruction
 #SBATCH --gres=gpu:1
 #SBATCH --account=f2026.coms.5790.01
@@ -89,20 +89,64 @@ echo ""
 
 # ---------------------------------------------------------------------------
 # DECISIVE EXPERIMENT: Rewrite + measure
+# Run as separate python processes to get clean GPU memory
 # ---------------------------------------------------------------------------
-echo "=== Rewrite Experiment: Baseline vs TraceOpt ==="
+echo "=== Rewrite Experiment: Baseline vs TraceOpt (bs=16) ==="
 echo "(Multi-stream pipeline: DEVICE_SYNC → targeted events)"
 echo ""
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
 python3 rewrite_experiment.py \
     --batch-size 16 --iters 20 --trials 30 --warmup 10 \
     --output rewrite_results.json
 echo ""
 
-# Also try larger batch
 echo "=== Rewrite Experiment: batch=32 ==="
 python3 rewrite_experiment.py \
     --batch-size 32 --iters 20 --trials 30 --warmup 10 \
     --output rewrite_results_bs32.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# SWEEP EXPERIMENT: batch size × execution mode (GLOBAL/EVENT/MANUAL/NONE)
+# The decisive experiment for understanding when/why TraceOpt helps
+# ---------------------------------------------------------------------------
+echo "=== Batch Size Sweep (with MANUAL double-buffered mode) ==="
+echo "(Tests: GLOBAL, EVENT, MANUAL, NONE across batch sizes)"
+echo ""
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 rewrite_sweep.py \
+    --batch-sizes 1,2,4,8,16,32 \
+    --iters 20 --trials 20 --warmup 10 \
+    --verify \
+    --output sweep_results.json
+echo ""
+
+# Try batch=64 separately (may OOM)
+echo "=== Batch Size Sweep: bs=64 (may OOM) ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 rewrite_sweep.py \
+    --batch-sizes 64 \
+    --iters 10 --trials 15 --warmup 5 \
+    --output sweep_results_bs64.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# PIPELINE DEPTH SWEEP
+# ---------------------------------------------------------------------------
+echo "=== Pipeline Depth Sweep (bs=16) ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 pipeline_sweep.py \
+    --batch-size 16 --stages 2,3,4 \
+    --iters 20 --trials 20 --warmup 10 \
+    --output pipeline_sweep_bs16.json
+echo ""
+
+echo "=== Pipeline Depth Sweep (bs=8) ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 pipeline_sweep.py \
+    --batch-size 8 --stages 2,3,4 \
+    --iters 20 --trials 20 --warmup 10 \
+    --output pipeline_sweep_bs8.json
 echo ""
 
 echo "End: $(date)"

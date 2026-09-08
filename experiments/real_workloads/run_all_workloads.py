@@ -188,7 +188,7 @@ def main():
     print(f"  - {total_weakenable}/{total_barriers} barriers are WEAKENABLE "
           f"(global sync → targeted events)")
     print(f"  - {total_required_edges} required Cartesian-product edges "
-          f"reduce to {total_frontier} minimal frontier events")
+          f"reduce to {total_frontier} frontier events")
     print(f"  - Compression: {total_required_edges} edges → "
           f"{total_frontier} events "
           f"({total_frontier/max(total_required_edges,1):.0%} of naive)")

@@ -268,7 +268,7 @@ def main():
 
     speedup_median = baseline['median_ms'] / traceopt['median_ms']
     speedup_mean = baseline['mean_ms'] / traceopt['mean_ms']
-    theoretical_max = baseline['median_ms'] / nosync['median_ms']
+    nosync_bound = baseline['median_ms'] / nosync['median_ms']
 
     # How much of the theoretical gap did TraceOpt close?
     gap_total = baseline['median_ms'] - nosync['median_ms']
@@ -287,7 +287,7 @@ def main():
     print()
     print(f"  Speedup (TraceOpt vs baseline): {speedup_median:.3f}x "
           f"(median), {speedup_mean:.3f}x (mean)")
-    print(f"  Theoretical max speedup:        {theoretical_max:.3f}x")
+    print(f"  No-sync bound:                  {nosync_bound:.3f}x")
     print(f"  Gap closed:                     {gap_pct:.1f}%")
     print()
 
@@ -295,7 +295,7 @@ def main():
         print(f"  CONCLUSION: Weakening synchronization provides "
               f"{(speedup_median - 1) * 100:.1f}% latency reduction.")
         print(f"  TraceOpt closes {gap_pct:.0f}% of the gap to "
-              f"theoretical maximum overlap.")
+              f"no-sync bound.")
     elif speedup_median > 0.99:
         print(f"  CONCLUSION: No significant difference. "
               f"The workload may not have enough concurrent work "
@@ -326,7 +326,7 @@ def main():
                     for k, v in all_results.items()},
         'speedup_median': speedup_median,
         'speedup_mean': speedup_mean,
-        'theoretical_max_speedup': theoretical_max,
+        'nosync_bound_speedup': nosync_bound,
         'gap_closed_pct': gap_pct,
     }
     with open(args.output, 'w') as f:
