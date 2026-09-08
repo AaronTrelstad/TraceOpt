@@ -11,7 +11,7 @@
 #SBATCH --error=logs/m4_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0-3:00:0
+#SBATCH --time=0-4:00:0
 #SBATCH --partition=instruction
 #SBATCH --gres=gpu:1
 #SBATCH --account=f2026.coms.5790.01
@@ -174,6 +174,41 @@ python3 compile_comparison.py \
     --batch-size 8 --stages 3 \
     --iters 20 --trials 30 --warmup 15 \
     --output compile_comparison_3s_bs8.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# torch.compile DIAGNOSTIC (resolving the 41→7ms anomaly)
+# ---------------------------------------------------------------------------
+echo "=== torch.compile Diagnostic ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_diagnostic.py \
+    --batch-size 16 \
+    --output compile_diagnostic.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# NSIGHT SYSTEMS CAPTURE (4 configurations)
+# ---------------------------------------------------------------------------
+echo "=== Nsight Systems Capture ==="
+which nsys > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    for MODE in eager_global eager_event compile_global compile_only; do
+        echo "--- Capturing: $MODE ---"
+        nsys profile \
+            --trace=cuda,nvtx \
+            --output="nsight_${MODE}" \
+            --force-overwrite=true \
+            python3 nsight_capture.py \
+                --mode $MODE \
+                --batch-size 16 \
+                --iters 10 \
+                --warmup 5
+        echo ""
+    done
+    echo "Nsight profiles saved."
+else
+    echo "nsys not found, skipping Nsight capture."
+fi
 echo ""
 
 echo "End: $(date)"
