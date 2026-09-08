@@ -291,9 +291,17 @@ class SyncAnalysisResult:
         """
         Compute the minimal set of event dependencies to replace this barrier.
 
-        Algorithm: transitive reduction of the required ordering graph.
-        An edge (u,v) is redundant if there exists another path u→...→v
-        through other required edges. We keep only the irreducible edges.
+        Key insight: CUDA stream ordering means that if ops A and B are on
+        the same stream with A < B, then:
+        - For a consumer C: edge A→C is redundant if B→C exists (B implies A)
+        - For a producer P: edge P→B is redundant if P→A exists (A implies B)
+
+        Algorithm:
+        1. Group required edges by (producer_stream, consumer_stream) pair
+        2. For each pair, keep only the LATEST producer and EARLIEST consumer
+           (stream order handles the rest)
+
+        This reduces the frontier from O(|P|×|Q|) to O(|streams|²).
 
         Args:
             op_streams: mapping from op_id to stream_id
@@ -311,45 +319,36 @@ class SyncAnalysisResult:
             return DependencyFrontier(
                 host_sync_required=self.host_obs.required)
 
-        # Build adjacency for required edges
-        adj: Dict[int, Set[int]] = defaultdict(set)
-        for u, v in required_edges:
-            adj[u].add(v)
+        # Group by (producer_stream, consumer_stream)
+        # For each group, find latest producer and earliest consumer
+        # Key: (prod_stream, cons_stream) → (latest_producer, earliest_consumer)
+        stream_pairs: Dict[Tuple[int, int], Tuple[int, int]] = {}
 
-        # Transitive reduction: remove edge (u,v) if reachable u→...→v
-        # through other edges (path length >= 2)
-        frontier_edges: List[Tuple[int, int]] = []
         for u, v in required_edges:
-            # Check if v is reachable from u WITHOUT using the direct u→v edge
-            reachable = set()
-            queue = []
-            for w in adj[u]:
-                if w != v:
-                    queue.append(w)
-            visited = {u}
-            while queue:
-                node = queue.pop(0)
-                if node == v:
-                    reachable.add(v)
-                    break
-                if node in visited:
-                    continue
-                visited.add(node)
-                for w in adj.get(node, set()):
-                    queue.append(w)
+            u_stream = op_streams.get(u, 0)
+            v_stream = op_streams.get(v, 0)
+            key = (u_stream, v_stream)
 
-            if v not in reachable:
-                frontier_edges.append((u, v))
+            if key not in stream_pairs:
+                stream_pairs[key] = (u, v)
+            else:
+                prev_u, prev_v = stream_pairs[key]
+                # Keep latest producer (highest op_id on same stream)
+                best_u = max(prev_u, u)
+                # Keep earliest consumer (lowest op_id on same stream)
+                best_v = min(prev_v, v)
+                stream_pairs[key] = (best_u, best_v)
 
         # Convert to EventDependency objects
         events = []
-        for u, v in frontier_edges:
+        for (u_stream, v_stream), (u, v) in sorted(stream_pairs.items()):
             events.append(EventDependency(
                 producer=u,
                 consumer=v,
-                producer_stream=op_streams.get(u, 0),
-                consumer_stream=op_streams.get(v, 0),
-                reason=f"required ordering op {u} → op {v}",
+                producer_stream=u_stream,
+                consumer_stream=v_stream,
+                reason=f"frontier: latest s{u_stream} op {u} → "
+                       f"earliest s{v_stream} op {v}",
             ))
 
         return DependencyFrontier(

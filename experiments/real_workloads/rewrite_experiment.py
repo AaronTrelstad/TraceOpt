@@ -217,48 +217,49 @@ def main():
 
     all_results = {}
 
-    for name, run_fn in configs:
-        print(f"\n--- {name} ---")
+    with torch.no_grad():
+        for name, run_fn in configs:
+            print(f"\n--- {name} ---")
 
-        # Warmup
-        for _ in range(args.warmup):
-            run_fn(model, preprocess_buf, infer_buf, postprocess_buf,
-                   streams, args.iters, device)
+            # Warmup
+            for _ in range(args.warmup):
+                run_fn(model, preprocess_buf, infer_buf, postprocess_buf,
+                       streams, args.iters, device)
 
-        # Measure
-        times = []
-        for t in range(args.trials):
-            ms = run_fn(model, preprocess_buf, infer_buf, postprocess_buf,
-                        streams, args.iters, device)
-            times.append(ms)
+            # Measure
+            times = []
+            for t in range(args.trials):
+                ms = run_fn(model, preprocess_buf, infer_buf, postprocess_buf,
+                            streams, args.iters, device)
+                times.append(ms)
 
-        times.sort()
-        mean_ms = sum(times) / len(times)
-        median_ms = times[len(times) // 2]
-        min_ms = times[0]
-        max_ms = times[-1]
-        p95 = times[int(len(times) * 0.95)]
+            times.sort()
+            mean_ms = sum(times) / len(times)
+            median_ms = times[len(times) // 2]
+            min_ms = times[0]
+            max_ms = times[-1]
+            p95 = times[int(len(times) * 0.95)]
 
-        # Per-iteration
-        mean_per_iter = mean_ms / args.iters
-        median_per_iter = median_ms / args.iters
+            # Per-iteration
+            mean_per_iter = mean_ms / args.iters
+            median_per_iter = median_ms / args.iters
 
-        print(f"  Total ({args.iters} iters): "
-              f"mean={mean_ms:.2f}ms  median={median_ms:.2f}ms  "
-              f"min={min_ms:.2f}ms  max={max_ms:.2f}ms  p95={p95:.2f}ms")
-        print(f"  Per iteration: "
-              f"mean={mean_per_iter:.3f}ms  median={median_per_iter:.3f}ms")
+            print(f"  Total ({args.iters} iters): "
+                  f"mean={mean_ms:.2f}ms  median={median_ms:.2f}ms  "
+                  f"min={min_ms:.2f}ms  max={max_ms:.2f}ms  p95={p95:.2f}ms")
+            print(f"  Per iteration: "
+                  f"mean={mean_per_iter:.3f}ms  median={median_per_iter:.3f}ms")
 
-        all_results[name] = {
-            'mean_ms': mean_ms,
-            'median_ms': median_ms,
-            'min_ms': min_ms,
-            'max_ms': max_ms,
-            'p95_ms': p95,
-            'per_iter_mean_ms': mean_per_iter,
-            'per_iter_median_ms': median_per_iter,
-            'times': times,
-        }
+            all_results[name] = {
+                'mean_ms': mean_ms,
+                'median_ms': median_ms,
+                'min_ms': min_ms,
+                'max_ms': max_ms,
+                'p95_ms': p95,
+                'per_iter_mean_ms': mean_per_iter,
+                'per_iter_median_ms': median_per_iter,
+                'times': times,
+            }
 
     # Compute speedups
     baseline = all_results['GLOBAL (baseline)']
