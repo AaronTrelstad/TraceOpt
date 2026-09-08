@@ -591,7 +591,7 @@ def main():
 
     if torch.cuda.is_available():
         prop = torch.cuda.get_device_properties(0)
-        print(f"GPU: {prop.name} ({prop.total_mem / 1e9:.1f} GB)")
+        print(f"GPU: {prop.name} ({prop.total_memory / 1e9:.1f} GB)")
         print(f"SMs: {prop.multi_processor_count}")
     print(f"PyTorch: {torch.__version__}")
     print(f"CUDA: {torch.version.cuda}")
@@ -600,8 +600,8 @@ def main():
     # Check torch.compile backend info
     print(f"\ntorch.compile backend: ", end="")
     try:
-        import torch._dynamo
-        print(f"dynamo available, backends: {torch._dynamo.list_backends()}")
+        dynamo = torch._dynamo
+        print(f"dynamo available, backends: {dynamo.list_backends()}")
     except Exception as e:
         print(f"dynamo info unavailable: {e}")
 
