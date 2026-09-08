@@ -194,22 +194,36 @@ def verify_multi_iteration_correctness(model_eager, batch_size, device,
             infer_buf = torch.zeros(batch_size, 3, 224, 224, device=device)
             post_buf = torch.zeros(batch_size, 1000, device=device)
 
-            with torch.no_grad():
-                run_pipeline_3stage(model, preprocess_buf, infer_buf, post_buf,
-                                    streams, sync_mode, n_iters)
+            try:
+                with torch.no_grad():
+                    run_pipeline_3stage(model, preprocess_buf, infer_buf, post_buf,
+                                        streams, sync_mode, n_iters)
+                    torch.cuda.synchronize()
+
+                # Capture final state
+                final_post = post_buf.clone().cpu()
+                topk_vals, topk_idx = torch.topk(post_buf, k=5, dim=1)
+
+                key = f"{model_label}_{sync_mode}"
+                results[key] = {
+                    'post_buf_mean': final_post.mean().item(),
+                    'post_buf_std': final_post.std().item(),
+                    'topk_vals': topk_vals.cpu(),
+                    'topk_idx': topk_idx.cpu(),
+                }
+            except RuntimeError as e:
+                # 'none' mode can trigger CUDA assertions from data races
+                # (corrupted tensors → topk out-of-bounds). Catch and record.
+                key = f"{model_label}_{sync_mode}"
+                results[key] = {
+                    'post_buf_mean': float('nan'),
+                    'post_buf_std': float('nan'),
+                    'error': str(e),
+                }
+                print(f"    {key}: CUDA error (expected for none mode): {str(e)[:100]}")
+                # Reset device to clear poisoned context
                 torch.cuda.synchronize()
-
-            # Capture final state
-            final_post = post_buf.clone().cpu()
-            topk_vals, topk_idx = torch.topk(post_buf, k=5, dim=1)
-
-            key = f"{model_label}_{sync_mode}"
-            results[key] = {
-                'post_buf_mean': final_post.mean().item(),
-                'post_buf_std': final_post.std().item(),
-                'topk_vals': topk_vals.cpu(),
-                'topk_idx': topk_idx.cpu(),
-            }
+                torch.cuda.empty_cache()
 
     # Compare against global (guaranteed correct) baselines
     print(f"\n  Multi-iteration correctness ({n_iters} iterations):")

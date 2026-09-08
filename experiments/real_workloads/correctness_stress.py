@@ -297,7 +297,11 @@ def main():
     n_iters_list = [40, 100, 200]
     n_stages_list = [3, 4, 5]
     n_repetitions = 5
-    sync_modes = ['event', 'none']
+    # NOTE: 'none' mode removed — it causes data races that trigger CUDA
+    # assertion failures in torch.topk, poisoning the GPU context and killing
+    # all subsequent experiments in the same job.  NONE-mode corruption is
+    # already demonstrated by the rewrite experiments.
+    sync_modes = ['event']
 
     all_results = {}
     total_tests = 0
