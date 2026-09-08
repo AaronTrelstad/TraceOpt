@@ -177,13 +177,33 @@ python3 compile_comparison.py \
 echo ""
 
 # ---------------------------------------------------------------------------
-# torch.compile DIAGNOSTIC (resolving the 41→7ms anomaly)
+# TIMING VERIFICATION (resolving the 41→7ms anomaly)
+# This is the critical test: submission vs completion time
 # ---------------------------------------------------------------------------
-echo "=== torch.compile Diagnostic ==="
+echo "=== Timing Verification: Submit vs Complete ==="
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
-python3 compile_diagnostic.py \
+python3 timing_verification.py \
     --batch-size 16 \
-    --output compile_diagnostic.json
+    --output timing_verification.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# CORRECTED torch.compile comparison (with stream-draining fix)
+# ---------------------------------------------------------------------------
+echo "=== CORRECTED torch.compile Comparison: 3-stage, bs=16 ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_comparison.py \
+    --batch-size 16 --stages 3 \
+    --iters 20 --trials 30 --warmup 15 \
+    --output compile_comparison_3s_bs16_fixed.json
+echo ""
+
+echo "=== CORRECTED torch.compile Comparison: 4-stage, bs=16 ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_comparison.py \
+    --batch-size 16 --stages 4 \
+    --iters 20 --trials 30 --warmup 15 \
+    --output compile_comparison_4s_bs16_fixed.json
 echo ""
 
 # ---------------------------------------------------------------------------
@@ -206,6 +226,8 @@ if [ $? -eq 0 ]; then
         echo ""
     done
     echo "Nsight profiles saved."
+    # Analyze if possible
+    bash nsight_analyze.sh 2>/dev/null || true
 else
     echo "nsys not found, skipping Nsight capture."
 fi

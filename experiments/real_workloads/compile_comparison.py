@@ -278,15 +278,17 @@ def bootstrap_ci(data, n_bootstrap=10000, ci=0.95):
 
 def measure_pipeline(run_fn, preprocess_buf, bufs, streams, n_iters,
                      n_warmup, n_trials, device):
-    """Measure a pipeline and return stats with CI."""
+    """Measure a pipeline and return stats with CI.
+
+    IMPORTANT: end event must be recorded AFTER all stream work completes.
+    We drain all work streams into the default stream before recording end,
+    so start.elapsed_time(end) captures actual GPU completion, not just
+    CPU enqueue time.
+    """
     # Warmup
     for _ in range(n_warmup):
         torch.cuda.synchronize()
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
-        start.record()
         run_fn(preprocess_buf, bufs, streams, n_iters, device)
-        end.record()
         torch.cuda.synchronize()
 
     # Measure
@@ -297,6 +299,11 @@ def measure_pipeline(run_fn, preprocess_buf, bufs, streams, n_iters,
         end = torch.cuda.Event(enable_timing=True)
         start.record()
         run_fn(preprocess_buf, bufs, streams, n_iters, device)
+        # Drain all work streams into default stream before recording end
+        for s in streams:
+            drain_evt = torch.cuda.Event()
+            drain_evt.record(s)
+            torch.cuda.current_stream().wait_event(drain_evt)
         end.record()
         torch.cuda.synchronize()
         times.append(start.elapsed_time(end))
