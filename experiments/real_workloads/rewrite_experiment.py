@@ -189,7 +189,7 @@ def main():
     # GPU info
     if torch.cuda.is_available():
         prop = torch.cuda.get_device_properties(0)
-        print(f"GPU: {prop.name} ({prop.total_mem / 1e9:.1f} GB)")
+        print(f"GPU: {prop.name} ({prop.total_memory / 1e9:.1f} GB)")
         print(f"SMs: {prop.multi_processor_count}")
 
     print(f"Batch size: {batch_size}")
