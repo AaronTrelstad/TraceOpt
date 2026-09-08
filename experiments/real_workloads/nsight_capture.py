@@ -98,7 +98,8 @@ def main():
     parser.add_argument('--mode', required=True,
                         choices=['eager_global', 'eager_event',
                                  'compile_global', 'compile_event',
-                                 'compile_only'])
+                                 'compile_only',
+                                 'compile_RO_global', 'compile_RO_event'])
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--iters', type=int, default=20,
@@ -108,6 +109,7 @@ def main():
 
     device = torch.device(args.device)
     use_compile = args.mode.startswith('compile')
+    use_reduce_overhead = 'RO' in args.mode
 
     if args.mode.endswith('_global'):
         sync_mode = 'global'
@@ -123,7 +125,8 @@ def main():
     # Build model
     if use_compile:
         eager = build_model(device)
-        model = torch.compile(eager, mode='reduce-overhead')
+        compile_mode = 'reduce-overhead' if use_reduce_overhead else None
+        model = torch.compile(eager, mode=compile_mode)
     else:
         model = build_model(device)
 

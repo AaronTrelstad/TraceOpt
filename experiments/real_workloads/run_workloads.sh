@@ -233,5 +233,49 @@ else
 fi
 echo ""
 
+# ---------------------------------------------------------------------------
+# CORRECTNESS STRESS TEST (mandatory for deep-pipelining claim)
+# ---------------------------------------------------------------------------
+echo "=== Correctness Stress Test ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 correctness_stress.py \
+    --batch-size 16 \
+    --output correctness_stress.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# DISPATCH/COMPUTE RATIO SWEEP (predictive model experiment)
+# ---------------------------------------------------------------------------
+echo "=== Dispatch/Compute Ratio Sweep ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 dispatch_ratio_sweep.py \
+    --output dispatch_ratio_sweep.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# NSIGHT: compile_RO_global vs compile_RO_event (the key visual)
+# ---------------------------------------------------------------------------
+echo "=== Nsight: compile_RO_global vs compile_RO_event ==="
+which nsys > /dev/null 2>&1
+if [ $? -eq 0 ]; then
+    for MODE in compile_RO_global compile_RO_event; do
+        echo "--- Capturing: $MODE ---"
+        nsys profile \
+            --trace=cuda,nvtx \
+            --output="nsight_${MODE}" \
+            --force-overwrite=true \
+            python3 nsight_capture.py \
+                --mode $MODE \
+                --batch-size 16 \
+                --iters 10 \
+                --warmup 5
+        echo ""
+    done
+    bash nsight_analyze.sh 2>/dev/null || true
+else
+    echo "nsys not found, skipping."
+fi
+echo ""
+
 echo "End: $(date)"
 echo "Exit: $?"
