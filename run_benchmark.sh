@@ -7,8 +7,8 @@
 # =============================================================================
 
 #SBATCH --job-name=traceopt_bench
-#SBATCH --output=experiments/benchmark/logs/%j.out
-#SBATCH --error=experiments/benchmark/logs/%j.err
+#SBATCH --output=logs/%j.out
+#SBATCH --error=logs/%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --time=0-0:30:0
