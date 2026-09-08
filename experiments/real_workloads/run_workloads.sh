@@ -11,7 +11,7 @@
 #SBATCH --error=logs/m4_%j.err
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
-#SBATCH --time=0-2:00:0
+#SBATCH --time=0-3:00:0
 #SBATCH --partition=instruction
 #SBATCH --gres=gpu:1
 #SBATCH --account=f2026.coms.5790.01
@@ -133,20 +133,47 @@ echo ""
 # ---------------------------------------------------------------------------
 # PIPELINE DEPTH SWEEP
 # ---------------------------------------------------------------------------
-echo "=== Pipeline Depth Sweep (bs=16) ==="
+echo "=== Pipeline Depth Sweep (bs=16, 2-6 stages) ==="
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
 python3 pipeline_sweep.py \
-    --batch-size 16 --stages 2,3,4 \
+    --batch-size 16 --stages 2,3,4,5,6 \
     --iters 20 --trials 20 --warmup 10 \
     --output pipeline_sweep_bs16.json
 echo ""
 
-echo "=== Pipeline Depth Sweep (bs=8) ==="
+echo "=== Pipeline Depth Sweep (bs=8, 2-6 stages) ==="
 python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
 python3 pipeline_sweep.py \
-    --batch-size 8 --stages 2,3,4 \
+    --batch-size 8 --stages 2,3,4,5,6 \
     --iters 20 --trials 20 --warmup 10 \
     --output pipeline_sweep_bs8.json
+echo ""
+
+# ---------------------------------------------------------------------------
+# MILESTONE 5: torch.compile COMPARISON (the kill test)
+# ---------------------------------------------------------------------------
+echo "=== torch.compile Comparison: 3-stage, bs=16 ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_comparison.py \
+    --batch-size 16 --stages 3 \
+    --iters 20 --trials 30 --warmup 15 \
+    --output compile_comparison_3s_bs16.json
+echo ""
+
+echo "=== torch.compile Comparison: 4-stage, bs=16 ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_comparison.py \
+    --batch-size 16 --stages 4 \
+    --iters 20 --trials 30 --warmup 15 \
+    --output compile_comparison_4s_bs16.json
+echo ""
+
+echo "=== torch.compile Comparison: 3-stage, bs=8 ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 compile_comparison.py \
+    --batch-size 8 --stages 3 \
+    --iters 20 --trials 30 --warmup 15 \
+    --output compile_comparison_3s_bs8.json
 echo ""
 
 echo "End: $(date)"
