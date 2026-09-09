@@ -208,7 +208,7 @@ def main():
 
     if torch.cuda.is_available():
         prop = torch.cuda.get_device_properties(0)
-        print(f"GPU: {prop.name} ({prop.total_mem / 1e9:.1f} GB)")
+        print(f"GPU: {prop.name} ({prop.total_memory / 1e9:.1f} GB)")
     print(f"PyTorch: {torch.__version__}")
 
     model = build_model(device)
