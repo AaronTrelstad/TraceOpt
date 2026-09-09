@@ -277,5 +277,14 @@ else
 fi
 echo ""
 
+# ---------------------------------------------------------------------------
+# EAGER TIMING (high-trial-count, focused eager measurement)
+# ---------------------------------------------------------------------------
+echo "=== Eager Timing Experiment (40 trials) ==="
+python3 -c "import torch; torch.cuda.empty_cache()" 2>/dev/null
+python3 eager_timing.py \
+    --output eager_timing.json
+echo ""
+
 echo "End: $(date)"
 echo "Exit: $?"
